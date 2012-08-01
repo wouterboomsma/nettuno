@@ -218,7 +218,7 @@ to an evaluator program'''
 
         else:
 
-            ln_weights[:,1] = (-1*get_beta()*energies[:,1])
+            ln_weights[:,1] = (-1*self.get_beta()*energies[:,1])
 
         return ln_weights
         
@@ -227,7 +227,9 @@ to an evaluator program'''
     def get_parameter_derivative_values(self, evaluator_path, parameter):
         '''Calculate the derivatives for a particular parameter.'''
 
+        print "trying to evaluate derivative"
         settings_file_content = parameter.get_derivative_settings()
+        print "with settings file: ", settings_file_content
         values = self.run_evaluator(evaluator_path, settings_file_content)
         return values
 
@@ -244,7 +246,7 @@ None if it was conducted in a generalized ensemble. '''
             return None
 
         # Read information from temperature file
-        temperature_filename = self.directory + "/n%s/temperature.info" % self.simulation_index
+        temperature_filename = self.directory + "n%s/temperature.info" % self.simulation_index
         temperature_file = open(temperature_filename)
         beta_column_index = 3
         for line in temperature_file.readlines():
@@ -253,9 +255,8 @@ None if it was conducted in a generalized ensemble. '''
                 continue;
             split_line = line.split()
             
-            if int(split_line[0]) == self.temperature_index:
+            if int(split_line[0]) == int(self.temperature_index):
                 return float(split_line[beta_column_index])
-
         print "No beta found in %s at temperature index %s" % (temperature_filename, self.temperature_index)
         sys.exit(1)
 
