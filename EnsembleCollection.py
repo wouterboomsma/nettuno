@@ -56,7 +56,7 @@ class EnsembleCollection:
         init_file.close()        
 
         
-    def add_target_ensemble(self, id, directory, simulation_type, iteration_range=None,
+    def add_target_ensemble(self, id, directory, simulation_type, reweight_beta=None, iteration_range=None,
                             **platform_specific_args):
         '''Add a target ensemble. The id, directory, and iteration_range parameters
            are common to all ensemble types. The platform_specific_args argument is
@@ -69,13 +69,13 @@ class EnsembleCollection:
             print "ERROR: Duplicate target ensemble name: ", id
             sys.exit(1)
     
-        self.ensembles[id]["target"] = PlatformSelector.get_ensemble(simulation_type, directory, iteration_range,
+        self.ensembles[id]["target"] = PlatformSelector.get_ensemble(simulation_type, directory, reweight_beta, iteration_range,
                                                                      self.log_level,
                                                                      platform_specific_args)
         self.ensembles[id]["model"] = []
 
 
-    def add_model_ensemble(self, id, directory, simulation_type, iteration_range=None, 
+    def add_model_ensemble(self, id, directory, simulation_type, reweight_beta=None, iteration_range=None, 
                            **platform_specific_args):
         '''Add a model ensemble. The id, directory, and iteration_range parameters
            are common to all ensemble types. The platform_specific_args argument is
@@ -88,7 +88,7 @@ class EnsembleCollection:
             self.ensembles[id]["model"] = []
 
         self.ensembles[id]["model"].append({})
-        self.ensembles[id]["model"][-1] = PlatformSelector.get_ensemble(simulation_type, directory, iteration_range,
+        self.ensembles[id]["model"][-1] = PlatformSelector.get_ensemble(simulation_type, directory, reweight_beta, iteration_range,
                                                                         self.log_level,
                                                                         platform_specific_args)
 

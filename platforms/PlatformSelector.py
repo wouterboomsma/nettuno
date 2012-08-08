@@ -33,14 +33,14 @@ class PlatformSelector:
     '''Factory class for constructing ensembles of specific type.'''
 
     @classmethod
-    def get_ensemble(self, simulation_type, directory, iteration_range, log_level=0, platform_specific_args={}):
+    def get_ensemble(self, simulation_type, directory, beta, iteration_range, log_level=0, platform_specific_args={}):
         '''Construct an ensemble. The directory and iteration_range parameters
 are common to all ensembles, while platform_specific_args is a dictionary containing
 platform-specific options.'''
 
         if simulation_type == "PROFASI":
             ensemble = ProfasiEnsemble(log_level)
-            ensemble.set_settings(directory, iteration_range, **platform_specific_args)
+            ensemble.set_settings(directory, beta, iteration_range, **platform_specific_args)
             return ensemble
         else:
             raise UnknownPlatformException(simulation_type)

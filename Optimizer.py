@@ -101,8 +101,6 @@ class Optimizer:
 
         iteration_range = [range_start, range_end]
 
-        # print iteration_range
-
         # Check that vectors reduce to same size (i.e., stride is the same)
         length = None
         truncated_data_vectors = []
@@ -138,187 +136,22 @@ class Optimizer:
 
 
 
-    def calculate_first_derivative_averages(self, evaluator_path, parameters, ensemble, weights):
+    def calculate_first_derivative_averages(self, evaluator_path, parameters, ensemble, weights=None):
         '''Calculate average of first derivatives for all parameters'''
         
+        if weights == None:
+            weights = ensemble.scalar_to_ensemble_array(1.0)
+
         derivative_averages = []
         for parameter in parameters:
             derivative_values = ensemble.get_parameter_derivative_values(evaluator_path, parameter)
 
             derivative_values, weights = self.truncate_to_common_iteration_range(derivative_values, 
                                                                                  weights)
-
             derivative_values_avg = numpy.average(derivative_values[:,1], weights=weights[:,1])
             derivative_averages.append(derivative_values_avg)
 
         return numpy.array(derivative_averages)
-
-
-    def calculate_first_derivative_averages2(self, evaluator_path, parameters, beta, ensemble):
-        '''Calculate average of first derivatives for all parameters, weights are implicit'''
-        
-        derivative_averages = []
-        for parameter in parameters:
-            derivative_values = ensemble.get_parameter_derivative_values(evaluator_path, parameter)
-            print "using the following deriv values: ",  derivative_values
-            derivative_values_avg = numpy.average(beta * derivative_values[:,1])
-            derivative_averages.append(derivative_values_avg)
-
-        return numpy.array(derivative_averages)
-
-
-
-    def calculate_S_rel_derivative2(self, parameters, ensemble_collection,
-                                   model_ensemble, target_ensemble,
-                                   reweighting = False):
-        '''Calculate derivative of the relative entropy for all parameters. If the reweighting
-flag is set, the calculations will be done according to Ferrenberg-Swendsen'''
-
-        # Evaluators
-        model_evaluator_path = ensemble_collection.evaluators[model_ensemble.simulation_type]
-        target_evaluator_path = ensemble_collection.evaluators[target_ensemble.simulation_type]
-
-
-        ### beta<dU_M/dlambda>_T ###
-
-        # Weights for calculating average
-        target_ln_weights_in_target_ensemble = target_ensemble.get_ln_weights()
-
-        # Attempt to get beta from ensemble
-        beta = model_ensemble.get_beta()
-        if beta == None:
-
-            # Evaluate the model energies over the target ensemble
-            model_energies_in_target_ensemble = target_ensemble.calculate_energies(parameters, model_evaluator_path)
-
-            # Evaluate the energies from the target ensemble using the weights of the model ensemble
-            model_ln_weights_in_target_ensemble = model_ensemble.get_ln_weights(model_energies_in_target_ensemble)
-
-            # Truncate so that all vectors agree on indices
-            (model_energies_in_target_ensemble, 
-             model_ln_weights_in_target_ensemble,
-             target_ln_weights_in_target_ensemble) = self.truncate_to_common_iteration_range(model_energies_in_target_ensemble,
-                                                                                             model_ln_weights_in_target_ensemble,
-                                                                                             target_ln_weights_in_target_ensemble)
-
-            # If beta is not available, it means we are dealing with a generalized ensemble. 
-            # In this case, we calculate beta as -ln(weight)/energy 
-            beta_values_in_target_ensemble = copy.copy(model_ln_weights_in_target_ensemble)
-            beta_values_in_target_ensemble[:,1] /= model_energies_in_target_ensemble[:,1]
-            
-            beta = beta_values_in_target_ensemble[:,1]
-
-
-        # Since beta is not necessarily constant, we include
-        # it as weights in the average
-        target_weights_in_target_ensemble = copy.copy(target_ln_weights_in_target_ensemble)
-        target_weights_in_target_ensemble[:,1] = numpy.exp(target_ln_weights_in_target_ensemble[:,1])
-        target_weights_in_target_ensemble[:,1] *= beta
- 
-        # Average of derivatives over target ensemble
-
-        target_beta_derivatives_avg =  self.calculate_first_derivative_averages2(target_evaluator_path, 
-                                                                               parameters, beta, 
-                                                                               target_ensemble)
-        print "average: ", target_beta_derivatives_avg
-        ### beta<dU_M/dlambda>_M ###
-
-        model_beta_derivatives_avg = None
-        model_ln_weights_in_model_ensemble = None
-        model_energies_in_model_ensemble = None
-        model_weights_in_model_ensemble = None
-        weightfactor = None
-        normalization_constant = 1.0
-        if not reweighting:
-
-            # Model energies and weights are stored in the ensemble
-            model_energies_in_model_ensemble = model_ensemble.get_energies()
-            model_ln_weights_in_model_ensemble = model_ensemble.get_ln_weights()
-
-            # Weights for calculating average
-            model_weights_in_model_ensemble = copy.copy(model_ln_weights_in_model_ensemble)
-            model_weights_in_model_ensemble[:,1] = numpy.exp(model_ln_weights_in_model_ensemble[:,1])
-            
-            weightfactor = copy.copy(model_weights_in_model_ensemble)
-            weightfactor[:,1] = 1.0
-
-        else: 
-
-            # Evaluate the model energies and weights with the new parameters
-            model_energies_in_model_ensemble = model_ensemble.calculate_energies(parameters, model_evaluator_path)
-            model_ln_weights_in_model_ensemble = model_ensemble.get_ln_weights(model_energies_in_model_ensemble)
-
-            # The weights occording to the original model ensemble
-            model_ln_weights_reference = model_ensemble.get_ln_weights()   # TODO: Cache this value
-
-            # Truncate so that all vectors agree on indices
-            (model_ln_weights_reference, 
-             model_ln_weights_in_model_ensemble) = self.truncate_to_common_iteration_range(model_ln_weights_reference,
-                                                                                           model_ln_weights_in_model_ensemble)
-
-            # The reweighting weights (the negative sign is because we use log-weights 
-            # instead of energies: lnw = -betaE)
-            w = copy.copy(model_ln_weights_reference)
-            w[:,1] = numpy.exp(-(model_ln_weights_reference[:,1] - model_ln_weights_in_model_ensemble[:,1]))
-
-            if not self.reweighting_support(w):
-                raise ReweightingException
-
-            # Averages are evaluated over the original model ensemble
-            model_weights_in_model_ensemble = copy.copy(model_ln_weights_reference)
-            model_weights_in_model_ensemble[:,1] = numpy.exp(model_ln_weights_reference[:,1])
-
-            # reweighting normalization constant
-            w_avg = numpy.average(w[:,1])
-            normalization_constant = w_avg
-
-            if self.log_level >= 2:
-                print "w_avg=",w_avg            
-
-            # To calculate the average over the derivate*w, we
-            # modify the weights to incorporate w
-            model_weights_in_model_ensemble[:,1] *= w[:,1]
-            
-            weightfactor = copy.copy(model_weights_in_model_ensemble)
-            weightfactor[:,1] = w[:,1] 
-
-
-        # Attempt to get beta from ensemble
-        beta = model_ensemble.get_beta()
-        if beta == None:
-
-            # If beta is not available, it means we are dealing with a generalized ensemble. 
-            # In this case, we calculate beta as -ln(weight)/energy 
-            beta_values_in_model_ensemble = copy.copy(model_ln_weights_in_model_ensemble)
-            beta_values_in_model_ensemble[:,1] /= model_energies_in_model_ensemble[:,1]
-
-            beta = beta_values_in_model_ensemble[:,1]
-            
-        weightfactor[:,1] *= beta
-        # Since beta is not necessarily constant, we include
-        # it as weights in the average
-#        model_weights_in_model_ensemble[:,1] *= beta
-
-        print "denominator: ", self.calculate_first_derivative_averages2(model_evaluator_path, 
-                                                                              parameters, weightfactor[:,1],
-                                                                              model_ensemble)
-        
-        # Average of derivatives over model ensemble
-        model_beta_derivatives_avg = self.calculate_first_derivative_averages2(model_evaluator_path, 
-                                                                              parameters, weightfactor[:,1],
-                                                                              model_ensemble)/normalization_constant
-
-        S_rel_derivative = target_beta_derivatives_avg - model_beta_derivatives_avg
-
-        if self.log_level >= 2:
-            print "target_beta_derivatives_avg=",target_beta_derivatives_avg,"\tmodel_beta_derivatives_avg=",model_beta_derivatives_avg
-
-        return S_rel_derivative
-
-
-
-
-
 
 
 
@@ -332,131 +165,73 @@ flag is set, the calculations will be done according to Ferrenberg-Swendsen'''
         model_evaluator_path = ensemble_collection.evaluators[model_ensemble.simulation_type]
         target_evaluator_path = ensemble_collection.evaluators[target_ensemble.simulation_type]
 
-
-        ### beta<dU_M/dlambda>_T ###
-
-        # Weights for calculating average
-        target_ln_weights_in_target_ensemble = target_ensemble.get_ln_weights()
-
-        # Attempt to get beta from ensemble
+        # Attempt to get beta from ensemble (model ensemble)
         beta = model_ensemble.get_beta()
-        if beta == None:
 
-            # Evaluate the model energies over the target ensemble
-            model_energies_in_target_ensemble = target_ensemble.calculate_energies(parameters, model_evaluator_path)
 
-            # Evaluate the energies from the target ensemble using the weights of the model ensemble
-            model_ln_weights_in_target_ensemble = model_ensemble.get_ln_weights(model_energies_in_target_ensemble)
+        ### <dU_M/dlambda>_T ###
 
-            # Truncate so that all vectors agree on indices
-            (model_energies_in_target_ensemble, 
-             model_ln_weights_in_target_ensemble,
-             target_ln_weights_in_target_ensemble) = self.truncate_to_common_iteration_range(model_energies_in_target_ensemble,
-                                                                                             model_ln_weights_in_target_ensemble,
-                                                                                             target_ln_weights_in_target_ensemble)
-
-            # If beta is not available, it means we are dealing with a generalized ensemble. 
-            # In this case, we calculate beta as -ln(weight)/energy 
-            beta_values_in_target_ensemble = copy.copy(model_ln_weights_in_target_ensemble)
-            beta_values_in_target_ensemble[:,1] /= model_energies_in_target_ensemble[:,1]
+        # Even when we are not doing a reweighted calculation of the derivative, 
+        # the ensemble itself might still need to be reweighted (for instance
+        # when working with generalized ensembles.
+        reweight_weights = target_ensemble.get_reweight_weights()
             
-            beta = beta_values_in_target_ensemble[:,1]
+        target_derivatives_avg =  self.calculate_first_derivative_averages(target_evaluator_path, 
+                                                                           parameters,  
+                                                                           target_ensemble,
+                                                                           weights=reweight_weights)
 
+        ### <dU_M/dlambda>_M ###
 
-        # Since beta is not necessarily constant, we include
-        # it as weights in the average
-        target_weights_in_target_ensemble = copy.copy(target_ln_weights_in_target_ensemble)
-        target_weights_in_target_ensemble[:,1] = numpy.exp(target_ln_weights_in_target_ensemble[:,1])
-        target_weights_in_target_ensemble[:,1] *= beta
-
-        # Average of derivatives over target ensemble
-        target_beta_derivatives_avg = self.calculate_first_derivative_averages(target_evaluator_path, 
-                                                                               parameters, 
-                                                                               target_ensemble, 
-                                                                               target_weights_in_target_ensemble)
-
-        ### beta<dU_M/dlambda>_M ###
-
-        model_beta_derivatives_avg = None
-        model_ln_weights_in_model_ensemble = None
-        model_energies_in_model_ensemble = None
-        model_weights_in_model_ensemble = None
+        # Even when we are not doing a reweighted calculation of the derivative, 
+        # the ensemble itself might still need to be reweighted (for instance
+        # when working with generalized ensembles.
+        reweight_weights = model_ensemble.get_reweight_weights()
 
         if not reweighting:
 
             # Model energies and weights are stored in the ensemble
             model_energies_in_model_ensemble = model_ensemble.get_energies()
-            model_ln_weights_in_model_ensemble = model_ensemble.get_ln_weights()
 
-            # Weights for calculating average
-            model_weights_in_model_ensemble = copy.copy(model_ln_weights_in_model_ensemble)
-            model_weights_in_model_ensemble[:,1] = numpy.exp(model_ln_weights_in_model_ensemble[:,1])
-
-        else: 
+        else :
 
             # Evaluate the model energies and weights with the new parameters
             model_energies_in_model_ensemble = model_ensemble.calculate_energies(parameters, model_evaluator_path)
-            model_ln_weights_in_model_ensemble = model_ensemble.get_ln_weights(model_energies_in_model_ensemble)
 
             # The weights occording to the original model ensemble
-            model_ln_weights_reference = model_ensemble.get_ln_weights()   # TODO: Cache this value
+            model_energies_reference = model_ensemble.get_energies()
 
             # Truncate so that all vectors agree on indices
-            (model_ln_weights_reference, 
-             model_ln_weights_in_model_ensemble) = self.truncate_to_common_iteration_range(model_ln_weights_reference,
-                                                                                           model_ln_weights_in_model_ensemble)
+            (model_energies_reference, 
+             reweight_weights,
+             model_energies_in_model_ensemble) = self.truncate_to_common_iteration_range(model_energies_reference,
+                                                                                         reweight_weights,
+                                                                                         model_energies_in_model_ensemble)
 
             # The reweighting weights (the negative sign is because we use log-weights 
             # instead of energies: lnw = -betaE)
-            w = copy.copy(model_ln_weights_reference)
-            w[:,1] = numpy.exp(-(model_ln_weights_reference[:,1] - model_ln_weights_in_model_ensemble[:,1]))
+            w = copy.copy(model_energies_reference)
+            w[:,1] = numpy.exp(model_ensemble.get_beta()*(model_energies_reference[:,1] - model_energies_in_model_ensemble[:,1]))
 
             if not self.reweighting_support(w):
                 raise ReweightingException
 
-            # Averages are evaluated over the original model ensemble
-            model_weights_in_model_ensemble = copy.copy(model_ln_weights_reference)
-            model_weights_in_model_ensemble[:,1] = numpy.exp(model_ln_weights_reference[:,1])
-
-            # reweighting normalization constant
-            w_avg = numpy.average(w[:,1], weights=model_weights_in_model_ensemble[:,1])
-            normalization_constant = w_avg
-
-            if self.log_level >= 2:
-                print "w_avg=",w_avg            
-
-            # To calculate the average over the derivate*w, we
-            # modify the weights to incorporate w
-            model_weights_in_model_ensemble[:,1] *= w[:,1]
-
-
-        # Attempt to get beta from ensemble
-        beta = model_ensemble.get_beta()
-        normalization_constant = 1.0
-        if beta == None:
-
-            # If beta is not available, it means we are dealing with a generalized ensemble. 
-            # In this case, we calculate beta as -ln(weight)/energy 
-            beta_values_in_model_ensemble = copy.copy(model_ln_weights_in_model_ensemble)
-            beta_values_in_model_ensemble[:,1] /= model_energies_in_model_ensemble[:,1]
-
-            beta = beta_values_in_model_ensemble[:,1]
-
-
-        # Since beta is not necessarily constant, we include
-        # it as weights in the average
-        model_weights_in_model_ensemble[:,1] *= beta
+            # The two types of reweighting can be combined. In order to avoid
+            # problems with the normalization constant, the original weights must be
+            # normalized first
+            reweight_weights[:,1]/float(sum(reweight_weights[:,1]))
+            reweight_weights[:,1] *= w[:,1]
 
         # Average of derivatives over model ensemble
-        model_beta_derivatives_avg = self.calculate_first_derivative_averages(model_evaluator_path, 
-                                                                              parameters, 
-                                                                              model_ensemble,
-                                                                              model_weights_in_model_ensemble)/normalization_constant
+        model_derivatives_avg = self.calculate_first_derivative_averages(model_evaluator_path, 
+                                                                         parameters, 
+                                                                         model_ensemble,
+                                                                         weights=reweight_weights)
 
-        S_rel_derivative = target_beta_derivatives_avg - model_beta_derivatives_avg
+        S_rel_derivative = beta*(target_derivatives_avg - model_derivatives_avg)
 
         if self.log_level >= 2:
-            print "target_beta_derivatives_avg=",target_beta_derivatives_avg,"\tmodel_beta_derivatives_avg=",model_beta_derivatives_avg
+            print "target_beta_derivatives_avg=",target_derivatives_avg,"\tmodel_beta_derivatives_avg=",model_derivatives_avg
 
         return S_rel_derivative
 

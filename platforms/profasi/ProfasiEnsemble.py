@@ -48,8 +48,8 @@ class ProfasiEnsemble(Ensemble):
         Ensemble.__init__(self, log_level)
 
 
-    def set_settings(self, directory, iteration_range,
-                     simulation_index=0, temperature_index=0, muninn_reweight_beta=1.0):        
+    def set_settings(self, directory, reweight_beta, iteration_range,
+                     simulation_index=0, temperature_index=0):        
         '''Initialize with object with current settings, and saves them
 for future retrieval. This method is separated from the constructor to 
 make it clear that these settings should all be available for retrievable 
@@ -62,8 +62,7 @@ which settings are expected by this platform.'''
     def get_option_help(self):
         '''Output for ensemble options used by command line parser.'''
         return str(SubOptions({'simulation_index':'Which simulation directory (n?) \n\tto use',
-                               'temperature_index':'The index of the temperature \n\tto use for the analysis',
-                               'muninn_reweight_beta':'Beta to use for Muninn\n\treweighting'}))
+                               'temperature_index':'The index of the temperature \n\tto use for the analysis'}))
 
 
     
@@ -197,31 +196,36 @@ to an evaluator program'''
         return values
 
 
-    def get_ln_weights(self, energies=None):
-        '''Retrieve ln(weights) for all samples in the ensemble. Optionally use
-           a different vector of energies than those associate with this ensemble.'''
+    def get_reweight_weights(self, energies=None):
+        '''Retrieve the weights necessary when calculating Boltzmann averages
+over the ensemble. This is 1.0 when evaluating an ensemble at the same temperature
+as it was simulated, but can be used both to reweight constant temperature simulations
+to a different temperature, or for generalized ensembles.'''
 
         if energies == None:
             energies = self.get_energies()
 
         # Transfer the index column
-        ln_weights = copy.copy(energies)
-
+        weights = copy.copy(energies)
+        
         # Check for muninn log file (suggesting a generalized ensemble simulation)
         muninn_filename = self.directory + "/muninn.txt" 
         if os.path.exists(muninn_filename):
-            
+        
             from external.muninn_scripts.details.CanonicalAverager import CanonicalAverager
             ca = CanonicalAverager(muninn_filename, -1)
             
-            ln_weights[:,1] = log(ca.calc_weights(energies[:,1], float(self.muninn_reweight_beta)))
+            weights[:,1] = ca.calc_weights(energies[:,1], float(self.reweight_beta))
 
         else:
 
-            ln_weights[:,1] = (-1*self.get_beta()*energies[:,1])
+            if (not self.reweight_beta or (self.reweight_beta - self.get_beta()) < 0.001):
+                weights[:,1] = 1.0
+            else:
+                print "Attempting to reweight an ensemble conducted at beta=%s to the inverse temperature beta=%s. Reweighting contant temperature ensembles to a different temperature is not yet implemented.\n" % (self.get_beta(), self.reweight_beta)
+                sys.exit(1);
 
-        return ln_weights
-        
+        return weights
 
 
     def get_parameter_derivative_values(self, evaluator_path, parameter):
@@ -234,7 +238,7 @@ to an evaluator program'''
         return values
 
 
-    def get_beta(self):
+    def get_intrinsic_beta(self):
         '''Return the beta=1/(k_bT) at which the simulation was conducted, or
 None if it was conducted in a generalized ensemble. '''
 
@@ -243,10 +247,17 @@ None if it was conducted in a generalized ensemble. '''
         # cannot be said to have a corresponding beta
         muninn_filename = self.directory + "/muninn.txt" 
         if os.path.exists(muninn_filename):
-            return None
+
+            # When doing a generalize ensemble, a reweighting temperature 
+            # option must be specified
+            if not self.reweight_beta:
+                print "Generalized ensemble simulations must specify reweight_beta option"
+                sys.exit(1)
+            else:
+                return None
 
         # Read information from temperature file
-        temperature_filename = self.directory + "n%s/temperature.info" % self.simulation_index
+        temperature_filename = self.directory + "/n%s/temperature.info" % self.simulation_index
         temperature_file = open(temperature_filename)
         beta_column_index = 3
         for line in temperature_file.readlines():

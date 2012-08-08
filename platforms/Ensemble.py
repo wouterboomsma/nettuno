@@ -18,6 +18,7 @@
 
 
 from abc import ABCMeta, abstractmethod
+import copy
 
 class Ensemble:
     '''Ensemble base class. All platform specific Ensemble implementations
@@ -33,7 +34,7 @@ should derive from this.'''
         self.log_level = log_level
 
 
-    def set_settings(self, directory, iteration_range, **platform_specific_args):
+    def set_settings(self, directory, reweight_beta, iteration_range, **platform_specific_args):
         '''Initialize with object with current settings, and saves them
 for future retrieval. This method is separated from the constructor to 
 make it clear that these settings should all be available for retrievable 
@@ -44,6 +45,10 @@ containing platform specific settings.'''
         self.settings = {}
         self.settings["directory"] = directory
         self.settings["iteration_range"] = iteration_range
+        self.settings["reweight_beta"] = reweight_beta
+        if self.settings["reweight_beta"] != None:
+            self.settings["reweight_beta"] = float(self.settings["reweight_beta"])
+
         self.settings.update(platform_specific_args)
         for item in self.settings.items():
             setattr(self, item[0], item[1])
@@ -117,14 +122,41 @@ to an evaluator program'''
         pass
 
     @abstractmethod
-    def get_ln_weights(self, energies=None):
-        '''Retrieve ln(weights) for all samples in the ensemble. This is an abstract
-method that must be overridden by derived classes.'''
+    def get_reweight_weights(self, energies=None):
+        '''Retrieve the weights necessary when calculating Boltzmann averages
+over the ensemble. This is 1.0 when evaluating an ensemble at the same temperature
+as it was simulated, but can be used both to reweight constant temperature simulations
+to a different temperature, or for generalized ensembles.'''
         pass
 
     @abstractmethod
-    def get_beta(self):
-        '''Return the beta=1/(k_bT) at which the simulation was conducted, or
-None if it was conducted in a generalized ensemble. This is an abstract
+    def get_intrinsic_beta(self):
+        '''Return the intrinsic beta=1/(k_bT) at which the simulation was conducted. This is an abstract
 method that must be overridden by derived classes.'''
         pass
+
+    def get_beta(self):
+        '''Return the beta=1/(k_bT) value set by the user in the configuration file, or
+if this is not specified, the intrinsic beta at which the simulation was conducted. '''
+        if self.reweight_beta != None:
+            return self.reweight_beta
+        else:
+            return self.get_intrinsic_beta()
+
+    def get_reweight_beta(self):
+        '''In case of a reweight_beta is available, return it. Otherwise, return
+the ensembles own beta.'''
+        if self.reweight_beta != None:
+            return self.reweight_beta
+        else:
+            return self.get_beta()
+
+    def scalar_to_ensemble_array(self, scalar):
+        '''Turn a scalar into an array that is compatible with
+the format that energies and weights are reported in: two columns
+where the first contains the indices'''
+        
+        # Use energies as a template
+        energies = copy.copy(self.get_energies())
+        energies[:,1] = scalar
+        return energies

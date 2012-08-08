@@ -97,6 +97,7 @@ Strategy:
     ensemble_option_help = "\nGeneral platform options:"
     ensemble_option_help += str(utils.SubOptions({'id':'ID (connects target and model ensembles)',
                                                   'directory': 'Directory containing simulation data',
+                                                  'beta': 'Inverse temperature at which analysis should be done',
                                                   'iteration_range': 'Range used in analysis:\n\t[start_index, end_index, interval]'}))
 
     # Platform specific options are retrieved from classes

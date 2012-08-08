@@ -51,7 +51,6 @@ class SteepestDescentOptimizer(Optimizer):
 
 
         parameters_reference = None
-        print "Before deriv calc. ",ensemble_collection.ensembles.keys()
             
         # In the first iteration, we evaluate the averages over the ensembles
         for name in ensemble_collection.ensembles.keys():
@@ -63,8 +62,7 @@ class SteepestDescentOptimizer(Optimizer):
             # Read parameters from ensemble directory
             parameters = model_ensemble.read_parameter_values(self.parameter_names)
 
-            print "trying to calculate first deriv"
-            S_rel_derivative = self.calculate_S_rel_derivative2(parameters, 
+            S_rel_derivative = self.calculate_S_rel_derivative(parameters, 
                                                                ensemble_collection,
                                                                model_ensemble,
                                                                target_ensemble,
@@ -74,29 +72,6 @@ class SteepestDescentOptimizer(Optimizer):
             if self.log_level >= 2:
                 print "S_rel_derivative: " , S_rel_derivative, " at parameter: ", parameters
 
-
-            # print "Starting to reweight"
-            # for i in range(1,15):
-            #     for i,parameter in enumerate(parameters):
-            #         parameter.set_value(parameter.get_value() + 0.1)
-
-            #     for name in ensemble_collection.ensembles.keys():
-
-            #         target_ensemble = ensemble_collection.ensembles[name]["target"]
-            #         model_ensemble = active_models[name]
-
-            #         try:
-            #             S_rel_derivative = self.calculate_S_rel_derivative2(parameters, 
-            #                                                            ensemble_collection,
-            #                                                            model_ensemble,
-            #                                                            target_ensemble,
-            #                                                            reweighting=True)
-            #         except ReweightingException:
-            #             return
-
-            #         if self.log_level >= 2:
-            #             print "S_rel_derivative_reweighted: " , S_rel_derivative, " at parameter: ", parameters
-                
 
             parameters_reference = copy.copy(parameters)
             for i,parameter in enumerate(parameters):
@@ -116,11 +91,11 @@ class SteepestDescentOptimizer(Optimizer):
                 model_ensemble = active_models[name]
 
                 try:
-                    S_rel_derivative = self.calculate_S_rel_derivative2(parameters, 
-                                                                       ensemble_collection,
-                                                                       model_ensemble,
-                                                                       target_ensemble,
-                                                                       reweighting=True)
+                    S_rel_derivative =  self.calculate_S_rel_derivative(parameters, 
+                                                                        ensemble_collection,
+                                                                        model_ensemble,
+                                                                        target_ensemble,
+                                                                        reweighting=True)
                 except ReweightingException:
                     return
 
