@@ -42,6 +42,8 @@ class ProfasiEnsemble(Ensemble):
     # Class variable specifying the name of the platform
     simulation_type = "PROFASI"
 
+    # For linear parameters we don't need to calculate the deriv. again
+    cachedParameterDerivatives = {}
 
     def __init__(self, log_level=0):
         '''Constructor.'''
@@ -74,10 +76,9 @@ which settings are expected by this platform.'''
     def write_parameter_values(self, requested_parameter_list):
         '''Write current parameter values in platform specific syntax.'''
         pass
-    
 
-    def get_energies(self, directory=None):
-        '''Retrieve energies for all samples in the ensemble. Note that this
+    def get_observable_values(self, observable_name, directory=None ):
+        '''Retrieve specified column of rt file of the ensemble. Note that this
 method does conduct any new evaluations but simply retrieves values.'''
 
         # If no directory is specified, use the one associated with this ensemble
@@ -88,22 +89,47 @@ method does conduct any new evaluations but simply retrieves values.'''
         rt_filename = os.path.join(directory, "rt")
         rt_matrix = genfromtxt(rt_filename)
 
-        energies = rt_matrix[:,0:3:2]
+        print "*** In get_observable_values, reading: ", rt_filename
 
-        # Optionally limit energies to a specified range
+        # Find out how to associate rtkey with rt file
+        rtkeyFile = open(os.path.join(directory, "rtkey"))
+        self.observables = [line.rstrip("\n ") for line in rtkeyFile.readlines()[1:]]        
+        colindex = self.observables.index(observable_name)
+
+
+        rtcolumn = rt_matrix[:,0:colindex+1:colindex]
+
+        # Optionally limit rtcolumn to a specified range
         limits = copy.copy(self.iteration_range)
         if limits[0] == None:
             limits[0] = 0
         if limits[1] == None:
-            limits[1] = max(energies[:,0])
-        energies = energies[numpy.logical_and.reduce([energies[:,0] >= limits[0], energies[:,0] <= limits[1]])]
+            limits[1] = max(rtcolumn[:,0])
+        rtcolumn = rtcolumn[numpy.logical_and.reduce([rtcolumn[:,0] >= limits[0], rtcolumn[:,0] <= limits[1]])]
 
-        return energies
+        return rtcolumn
+    
+
+    def get_energies(self, directory=None):
+        '''Retrieve energies for all samples in the ensemble. Note that this
+method does conduct any new evaluations but simply retrieves values.'''
+        return self.get_observable_values("Etot", directory)
 
         
     def calculate_energies(self, parameters, evaluator_path):
         '''Calculate energies given a set of parameter values and the path
 to an evaluator program'''
+
+        lineartest = [(i._type == 'linear') for i in parameters]
+        if(reduce(lambda x,y : x and y, lineartest)):
+            # Reevaluating linear energy change
+            energies = self.get_observable_values("Etot")
+            for parameter in parameters:
+                derivatives=self.get_parameter_derivative_values(evaluator_path, parameter)
+                ensemble_parameter = self.get_parameters([parameter.get_name()])
+                ensemble_parameter_value = float(str(ensemble_parameter[0]))
+                energies[:,1] += (parameter.get_value() - ensemble_parameter_value) * derivatives[:,1]
+            return energies
             
         # Read in original settings file
         settings_filename = self.directory + "/settings.cnf" 
@@ -230,8 +256,23 @@ to a different temperature, or for generalized ensembles.'''
 
     def get_parameter_derivative_values(self, evaluator_path, parameter):
         '''Calculate the derivatives for a particular parameter.'''
-
-        print "trying to evaluate derivative"
+        if(parameter._type == 'linear'):
+            ensemble_parameter = self.get_parameters([parameter.get_name()])
+            ensemble_parameter_value = float(str(ensemble_parameter[0]))
+            vals=[]
+            # Want to cache linear derivative values
+            cache_id = self.directory + parameter.get_name() 
+            if(cache_id in self.cachedParameterDerivatives):
+                print self.directory
+                print "[Linear] Derivatives are cached"
+                vals=self.cachedParameterDerivatives[cache_id]
+            else:
+                print "linear parameter, scaling back rt values ", parameter._rtname , " ", ensemble_parameter_value
+                vals = self.get_observable_values(parameter._rtname)
+                vals[:,1] = vals[:,1] * (1.0 / ensemble_parameter_value)            
+                self.cachedParameterDerivatives[cache_id] = vals
+            return vals 
+        print "[Nonlinear] parameter, need to do something else"
         settings_file_content = parameter.get_derivative_settings()
         print "with settings file: ", settings_file_content
         values = self.run_evaluator(evaluator_path, settings_file_content)

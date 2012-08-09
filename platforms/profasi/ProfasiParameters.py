@@ -99,6 +99,9 @@ class ProfasiChargedScInteractionScale(ProfasiParameter):
     _name='scale'
     _term_name='charged_sc_interaction'
 
+    _type='linear'
+    _rtname='ChargedSCInteraction'
+
     def __init__(self, directory):
         '''Constructor.'''
         ProfasiParameter.__init__(self, directory)
@@ -106,4 +109,25 @@ class ProfasiChargedScInteractionScale(ProfasiParameter):
     def get_derivative_settings(self):
         '''Get settings necessary to calculate derivative.'''
         settings_content = "charged_sc_interaction_pars SCALE:1.0\nforce_field FF08DR=FF08:ChargedSCInteraction"
+        return settings_content
+
+
+
+
+class ProfasiHBMMScale(ProfasiParameter):
+    '''Parameter class for the scale parameter in the main chain hydrogen bond term.'''
+
+    _name='scale'
+    _term_name='main_chain_hydrogenbonds'
+
+    _type='linear'
+    _rtname='HBMM'
+
+    def __init__(self, directory):
+        '''Constructor.'''
+        ProfasiParameter.__init__(self, directory)
+
+    def get_derivative_settings(self):
+        '''Get settings necessary to calculate derivative.'''
+        settings_content = "main_chain_hydrogenbonds_pars SCALE:1.0\nforce_field FF08DR=FF08:HBMM"
         return settings_content
