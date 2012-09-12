@@ -20,7 +20,7 @@ from abc import ABCMeta, abstractmethod
 import numpy
 import copy
 import sys
-
+from platforms.Parameter import ReferenceParameter
 class ReweightingException(Exception):
     '''Exception raised when there is no support for reweighting'''
     pass
@@ -36,6 +36,7 @@ class Optimizer:
     def __init__(self, log_level):
         '''Constructor'''
         self.parameter_names = []
+        self.parameters=[]
         self.beta = None
         self.log_level = log_level
 
@@ -57,9 +58,16 @@ class Optimizer:
                 continue
 
             command = line_split[0]
+#            if command == "add_parameter":
+#                self.parameter_names.append(line_split[1])
             if command == "add_parameter":
-                self.parameter_names.append(line_split[1])
-
+                # New parameter type: added size, add error message if no parameter set
+                [parameter_name, parameter_value] = line_split[1].split("=")
+                # Should implement a nicer way than to abuse the Parameter subclasses here
+                self.parameters.append(ReferenceParameter(parameter_name, parameter_value))
+                self.parameter_names.append(parameter_name)
+                print self.parameters
+ 
         init_file.close()        
 
 
@@ -156,8 +164,7 @@ class Optimizer:
 
 
     def calculate_S_rel_derivative(self, parameters, ensemble_collection,
-                                   model_ensemble, target_ensemble,
-                                   reweighting = False):
+                                   model_ensemble, target_ensemble):
         '''Calculate derivative of the relative entropy for all parameters. If the reweighting
 flag is set, the calculations will be done according to Ferrenberg-Swendsen'''
 
@@ -167,7 +174,6 @@ flag is set, the calculations will be done according to Ferrenberg-Swendsen'''
 
         # Attempt to get beta from ensemble (model ensemble)
         beta = model_ensemble.get_beta()
-
 
         ### <dU_M/dlambda>_T ###
 
@@ -187,41 +193,35 @@ flag is set, the calculations will be done according to Ferrenberg-Swendsen'''
         # the ensemble itself might still need to be reweighted (for instance
         # when working with generalized ensembles.
         reweight_weights = model_ensemble.get_reweight_weights()
+        
 
-        if not reweighting:
+        # Evaluate the model energies and weights with the new parameters
+        model_energies_in_model_ensemble = model_ensemble.calculate_energies(parameters, model_evaluator_path)
+        # The weights occording to the original model ensemble
+        model_energies_reference = model_ensemble.get_energies()
 
-            # Model energies and weights are stored in the ensemble
-            model_energies_in_model_ensemble = model_ensemble.get_energies()
+        # Truncate so that all vectors agree on indices
+        (model_energies_reference, 
+         reweight_weights,
+         model_energies_in_model_ensemble) = self.truncate_to_common_iteration_range(model_energies_reference,
+                                                                                     reweight_weights,
+                                                                                     model_energies_in_model_ensemble)
+         
+         
+        # The reweighting weights (the negative sign is because we use log-weights 
+        # instead of energies: lnw = -betaE)
+        w = copy.copy(model_energies_reference)
+        w[:,1] = numpy.exp(model_ensemble.get_beta()*(model_energies_reference[:,1] - model_energies_in_model_ensemble[:,1]))
 
-        else :
-
-            # Evaluate the model energies and weights with the new parameters
-            model_energies_in_model_ensemble = model_ensemble.calculate_energies(parameters, model_evaluator_path)
-
-            # The weights occording to the original model ensemble
-            model_energies_reference = model_ensemble.get_energies()
-
-            # Truncate so that all vectors agree on indices
-            (model_energies_reference, 
-             reweight_weights,
-             model_energies_in_model_ensemble) = self.truncate_to_common_iteration_range(model_energies_reference,
-                                                                                         reweight_weights,
-                                                                                         model_energies_in_model_ensemble)
-
-            # The reweighting weights (the negative sign is because we use log-weights 
-            # instead of energies: lnw = -betaE)
-            w = copy.copy(model_energies_reference)
-            w[:,1] = numpy.exp(model_ensemble.get_beta()*(model_energies_reference[:,1] - model_energies_in_model_ensemble[:,1]))
-
-            if not self.reweighting_support(w):
-                raise ReweightingException
-
-            # The two types of reweighting can be combined. In order to avoid
-            # problems with the normalization constant, the original weights must be
-            # normalized first
-            reweight_weights[:,1]/float(sum(reweight_weights[:,1]))
-            reweight_weights[:,1] *= w[:,1]
-
+        if not self.reweighting_support(w):
+            raise ReweightingException
+        
+        # The two types of reweighting can be combined. In order to avoid
+         # problems with the normalization constant, the original weights must be
+         # normalized first
+        reweight_weights[:,1]/float(sum(reweight_weights[:,1]))
+        reweight_weights[:,1] *= w[:,1]
+                    
         # Average of derivatives over model ensemble
         model_derivatives_avg = self.calculate_first_derivative_averages(model_evaluator_path, 
                                                                          parameters, 

@@ -27,6 +27,15 @@ class SteepestDescentOptimizer(Optimizer):
         '''Constructor'''
         Optimizer.__init__(self, log_level)
 
+    def outputToFile(self, filename, vals):
+        f = open(filename, 'w')
+        for i in vals:
+            for j in i:
+                print str(j[0]) + " " + str(j[1])
+                f.write(str(j[0]) + " " + str(j[1]) + " ")
+            f.write("\n")
+        f.close()
+        
 
     def optimize(self, ensemble_collection):
         '''Optimizes parameters given an ensemble collection'''
@@ -37,6 +46,7 @@ class SteepestDescentOptimizer(Optimizer):
 
         model_ln_weights_reference = {}
 
+        results=[]
 
         # Remove targets with no models
         for name in ensemble_collection.ensembles.keys():
@@ -51,108 +61,51 @@ class SteepestDescentOptimizer(Optimizer):
 
 
         parameters_reference = None
-        parameter_delta = numpy.zeros(len(self.parameter_names))
 
-        print "Before deriv calc. ",ensemble_collection.ensembles.keys()
-            
+        while True:
+
+            parameter_delta = numpy.zeros(len(self.parameter_names))
+        
         # In the first iteration, we evaluate the averages over the ensembles
-        for name in ensemble_collection.ensembles.keys():
-
-
-            target_ensemble = ensemble_collection.ensembles[name]["target"]
-            model_ensemble = active_models.get(name)
+            for name in ensemble_collection.ensembles.keys():
+                print "current name: ", name
+                target_ensemble = ensemble_collection.ensembles[name]["target"]
+                model_ensemble = active_models.get(name)
 
             # Read parameters from ensemble directory
-            parameters = model_ensemble.read_parameter_values(self.parameter_names)
-
-            print "trying to calculate first deriv"
-            S_rel_derivative = self.calculate_S_rel_derivative(parameters, 
-                                                               ensemble_collection,
-                                                               model_ensemble,
-                                                               target_ensemble,
-                                                               reweighting=False)
-            
-            
-            if self.log_level >= 2:
-                print "S_rel_derivative: " , S_rel_derivative, " at parameter: ", parameters
-
-
-            # print "Starting to reweight"
-            # for i in range(1,15):
-            #     for i,parameter in enumerate(parameters):
-            #         parameter.set_value(parameter.get_value() + 0.1)
-
-            #     for name in ensemble_collection.ensembles.keys():
-
-            #         target_ensemble = ensemble_collection.ensembles[name]["target"]
-            #         model_ensemble = active_models[name]
-
-            #         try:
-            #             S_rel_derivative = self.calculate_S_rel_derivative(parameters, 
-            #                                                            ensemble_collection,
-            #                                                            model_ensemble,
-            #                                                            target_ensemble,
-            #                                                            reweighting=True)
-            #         except ReweightingException:
-            #             return
-
-            #         if self.log_level >= 2:
-            #             print "S_rel_derivative_reweighted: " , S_rel_derivative, " at parameter: ", parameters
-                
-
-            parameters_reference = copy.copy(parameters)
-
-            for i,parameter in enumerate(parameters):
-                parameter_delta[i] += S_rel_derivative[i]
-
-        
-
-        # Update Parameters
-        parameter_delta = parameter_delta / len(parameter_delta)
-        for name in ensemble_collection.ensembles.keys():        
-            model_ensemble = active_models.get(name)
-            parameters = model_ensemble.read_parameter_values(self.parameter_names)
-            for i,parameter in enumerate(parameters):
-                parameter.set_value(parameter.get_value() - 0.25*parameter_delta[i])
-            if self.log_level >= 2:
-                print "parameters: ", parameters
-
-        # Continue as long as we have enough support for reweighting
-        while True:
-            parameter_delta = numpy.zeros(len(self.parameter_names))
-
-            # In the remaining iterations, we use reweighting to estimate the derivatives
-            for name in ensemble_collection.ensembles.keys():
-
-                target_ensemble = ensemble_collection.ensembles[name]["target"]
-                model_ensemble = active_models[name]
-
+#            parameters = model_ensemble.read_parameter_values(self.parameter_names)
                 try:
-                    S_rel_derivative = self.calculate_S_rel_derivative(parameters, 
-                                                                       ensemble_collection,
+                    S_rel_derivative = self.calculate_S_rel_derivative(self.parameters, 
+                                                                   ensemble_collection,
                                                                        model_ensemble,
-                                                                       target_ensemble,
-                                                                       reweighting=True)
+                                                                       target_ensemble)
+            
                 except ReweightingException:
+                    self.outputToFile("nettuno-excep.out", results)
                     return
-
+            
                 if self.log_level >= 2:
-                    print "S_rel_derivative_reweighted: " , S_rel_derivative
-
-
-                for i,parameter in enumerate(parameters):
+                    print "S_rel_derivative: " , S_rel_derivative, " at parameter: ", self.parameters
+                for i,parameter in enumerate(self.parameters):
                     parameter_delta[i] += S_rel_derivative[i]
 
-#                for i,parameter in enumerate(parameters):
-#                    parameter.set_value(parameter.get_value() - 0.25*S_rel_derivative[i])
 
-        # Update Parameters
-            parameter_delta = parameter_delta / len(parameter_delta)
-            for name in ensemble_collection.ensembles.keys():        
-                model_ensemble = active_models.get(name)
-   #             parameters = model_ensemble.read_parameter_values(self.parameter_names)
-                for i,parameter in enumerate(parameters):
-                    parameter.set_value(parameter.get_value() - 0.25*parameter_delta[i])
-                if self.log_level >= 2:
-                    print "parameters: ", parameters
- 
+            parameter_values = [i.get_value() for i in self.parameters]
+                    
+            # Update Parameters
+            parameter_delta = parameter_delta / len(ensemble_collection.ensembles.keys())
+            
+            # Stop procedure if parameter change gets too small, promote to parameter in settings file?
+            parameter_delta_sum = reduce(lambda x,y: abs(x) + abs(y), parameter_delta)
+
+            results.append(zip(parameter_values, parameter_delta))
+
+            if(abs(parameter_delta_sum) < 0.00001):                                       
+                self.outputToFile("nettuno.out", results)
+                break
+
+            for i,parameter in enumerate(self.parameters):
+                parameter.set_value(float(parameter.get_value()) - 0.25*parameter_delta[i])
+            if self.log_level >= 2:
+                print "parameters: ", self.parameters
+
